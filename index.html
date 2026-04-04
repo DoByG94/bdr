@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Runner Energy System</title>
+<title>Bioenergetics Dashboard for Runners</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -32,6 +32,7 @@
     font-family: var(--sans);
     min-height: 100vh;
     padding: 24px 16px 48px;
+    zoom: 1.15;
     background-image: radial-gradient(ellipse at 20% 0%, rgba(79,195,247,0.04) 0%, transparent 50%),
                       radial-gradient(ellipse at 80% 100%, rgba(245,166,35,0.04) 0%, transparent 50%);
   }
@@ -552,7 +553,7 @@
 
       <div class="field">
         <div class="slider-wrap">
-          <input type="range" id="pace-slider" min="0" max="100" value="65">
+          <input type="range" id="pace-slider" min="50" max="120" value="65">
           <div class="slider-labels">
             <span id="pace-slow-label">8:00</span>
             <span id="pace-fast-label">4:00</span>
@@ -606,9 +607,9 @@
     <div class="panel">
       <div class="panel-title"><span class="pulse-dot"></span>Energy Stores</div>
       <div class="batteries-row">
-        <!-- NEEDED INTAKE BATTERY (LEFT) -->
+        <!-- REQUIRED INTAKE BATTERY (LEFT) -->
         <div class="battery-card intake-card">
-          <div class="batt-label">Needed Intake</div>
+          <div class="batt-label">Required Intake</div>
           <svg id="intake-batt-svg" width="70" height="122" viewBox="0 0 80 160">
             <rect x="28" y="0" width="24" height="8" rx="4" fill="#2a2e3e"/>
             <rect x="2" y="8" width="76" height="142" rx="10" fill="none" stroke="#69db7c" stroke-width="2" opacity="0.3"/>
@@ -673,7 +674,7 @@
             <text x="40" y="96" text-anchor="middle" font-family="Space Mono,monospace" font-size="12" font-weight="700" fill="#ffffff" id="fat-pct-inside">100%</text>
           </svg>
           <div class="batt-primary" style="color:var(--fat-color)" id="fat-remaining">—</div>
-          <div class="batt-secondary" id="fat-total">— kcal total</div>
+          <div class="batt-secondary" id="fat-total">— kcal usable</div>
           <div class="batt-deficit" id="fat-deficit" style="display:none">Deficit</div>
           <div class="batt-deficit" style="color:#f5c518;">Don't worry</div>
         </div>
@@ -742,13 +743,14 @@ function paceRange() {
 }
 
 function sliderToPace(slider) {
-  const { fast, slow } = paceRange();
-  return slow + (fast - slow) * (slider / 100);
+  // slider value is intensity% (50-120), convert to pace
+  return state.csSec / (slider / 100);
 }
 
 function paceToSlider(paceSec) {
-  const { fast, slow } = paceRange();
-  return Math.max(0, Math.min(100, (paceSec - slow) / (fast - slow) * 100));
+  // convert pace to intensity% clamped to 50-120
+  const intPct = (state.csSec / paceSec) * 100;
+  return Math.max(50, Math.min(120, intPct));
 }
 
 function paceToPercent(paceSec) {
@@ -784,56 +786,52 @@ function drawZoneBar(currentIntensityPct) {
   const wrap = document.getElementById('zone-dividers');
   if (!wrap) return;
 
-  // Intensity range shown on the slider: 50% to 120%
   const intMin = 50;
   const intMax = 120;
   const intRange = intMax - intMin;
 
-  // Zone boundary values (the dividers between zones)
-  // Zones: Recovery<65, Easy 65-75, Steady 75-88, Tempo 88-95, Threshold 95-105, VO2max 105-115, Max>115
   const boundaries = [
     { pct: 65,  label: '65%' },
     { pct: 75,  label: '75%' },
     { pct: 88,  label: '88%' },
     { pct: 95,  label: '95%' },
     { pct: 105, label: '105%' },
-    { pct: 115, label: '115%' },
   ];
 
-  // Zone name labels to show between dividers (midpoints) + right boundary to jump to
   const zoneLabels = [
-    { mid: 57.5, name: 'Recovery',  rightPct: 65  },
-    { mid: 70,   name: 'Easy',      rightPct: 75  },
-    { mid: 81.5, name: 'Steady',    rightPct: 88  },
-    { mid: 91.5, name: 'Tempo',     rightPct: 95  },
-    { mid: 100,  name: 'Threshold', rightPct: 105 },
-    { mid: 110,  name: 'VO2max',    rightPct: 115 },
+    { name: 'Recovery',  midPct: 57.5, rightPct: 65  },
+    { name: 'Easy',      midPct: 70,   rightPct: 75  },
+    { name: 'Steady',    midPct: 81.5, rightPct: 88  },
+    { name: 'Tempo',     midPct: 91.5, rightPct: 95  },
+    { name: 'Thresh',    midPct: 100,  rightPct: 105 },
+    { name: 'VO2max',    midPct: 110,  rightPct: 115 },
   ];
 
-  let html = '<div style="position:relative;width:100%;height:48px;">';
+  const boundaryPcts = [intMin, 65, 75, 88, 95, 105, 115, intMax];
 
-  // Zone name labels between dividers
-  zoneLabels.forEach(z => {
-    if (z.mid < intMin || z.mid > intMax) return;
-    const leftPct = (z.mid - intMin) / intRange * 100;
-    html += `<span onclick="zoneClick(${z.rightPct})" title="Jump to ${z.rightPct}% of critical speed"
-      style="position:absolute;left:${leftPct}%;
-      transform:translateX(-50%) rotate(45deg);transform-origin:center top;
-      font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.3px;
-      top:14px;white-space:nowrap;cursor:pointer;display:inline-block;transition:color 0.15s;"
-      onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--text-dim)'">${z.name}</span>`;
+  let html = '<div style="position:relative;width:100%;height:72px;">';
+
+  zoneLabels.forEach((z, i) => {
+    const leftPct = ((boundaryPcts[i] + boundaryPcts[i + 1]) / 2 - intMin) / intRange * 100;
+    html += `<div onclick="zoneClick(${z.rightPct})" title="Jump to ${z.rightPct}% of critical speed"
+      style="position:absolute;left:${leftPct}%;top:10px;transform:translateX(-50%);margin-left:15px;
+      display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;"
+      onmouseenter="this.querySelectorAll('span').forEach(s=>s.style.color='var(--accent)')"
+      onmouseleave="this.querySelectorAll('span').forEach(s=>s.style.color='var(--text-dim)')">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.3px;
+        white-space:nowrap;display:inline-block;transform:rotate(45deg);transform-origin:left top;
+        transition:color 0.15s;">${z.name}</span>
+    </div>`;
   });
 
-  // Vertical divider lines (not clickable)
   boundaries.forEach(b => {
-    if (b.pct <= intMin || b.pct >= intMax) return;
     const leftPct = (b.pct - intMin) / intRange * 100;
     html += `<div style="position:absolute;left:${leftPct}%;top:0;transform:translateX(-50%);
              width:20px;height:28px;pointer-events:none;display:flex;flex-direction:column;
              align-items:center;gap:0;">
-      <span class="zdiv-label" style="font-family:var(--mono);font-size:8px;color:var(--text-dim);
-        line-height:1;transform:translateX(-100%);display:inline-block;">${b.label}</span>
-      <span class="zdiv-line" style="display:block;width:1px;flex:1;background:rgba(232,244,253,0.2);"></span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);
+        line-height:1;display:inline-block;text-align:center;">${b.label}</span>
+      <span style="display:block;width:1px;flex:1;background:rgba(232,244,253,0.2);"></span>
     </div>`;
   });
 
@@ -842,15 +840,13 @@ function drawZoneBar(currentIntensityPct) {
 }
 
 function zoneClick(midPct) {
-  // midPct is the target intensity percentage
-  // pace = csSec / (midPct/100)
-  const targetPace = state.csSec / (midPct / 100);
-  const slider = paceToSlider(targetPace);
-  document.getElementById('pace-slider').value = slider;
+  const targetPace = state.csSec / (midPct / 100); // exact float, no rounding
+  const sliderVal = paceToSlider(targetPace);
+  document.getElementById('pace-slider').value = sliderVal;
   document.getElementById('pace-input').value = fmtPace(targetPace);
-  state.paceSlider = slider;
+  state.paceSlider = sliderVal;
   state.paceSec = targetPace;
-  update();
+  update(true);
 }
 
 // ─── FORMULA ─────────────────────────────────────────────────────────────────
@@ -874,7 +870,6 @@ function getStores(weight) {
 
 // ─── INTENSITY ZONE ──────────────────────────────────────────────────────────
 function intensityZone(pct) {
-  console.log(pct);
   if (pct <= 65) return { name: 'Recovery', color: '#69db7c' };
   if (pct <= 75) return { name: 'Easy', color: '#69db7c' };
   if (pct <= 88) return { name: 'Steady', color: '#74c0fc' };
@@ -1032,8 +1027,7 @@ function drawBurnChart(currentPaceSec, weight, csSec) {
 }
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
-function update() {
-  console.log("update");
+function update(skipSliderRead) {
   state.weight = parseFloat(document.getElementById('weight').value) || 67.5;
   const csStr = document.getElementById('critical-speed').value;
   state.csSec = parsePace(csStr) || 300;
@@ -1048,8 +1042,10 @@ function update() {
   const { fast, slow } = paceRange();
   document.getElementById('pace-slow-label').textContent = fmtPace(slow) + ' min/km';
   document.getElementById('pace-fast-label').textContent = fmtPace(fast) + ' min/km';
-  state.paceSlider = parseInt(document.getElementById('pace-slider').value);
-  state.paceSec = sliderToPace(state.paceSlider);
+  if (!skipSliderRead) {
+    state.paceSlider = parseInt(document.getElementById('pace-slider').value);
+    state.paceSec = sliderToPace(state.paceSlider);
+  }
   // Sync pace input field (only if not currently focused)
   const paceInputEl = document.getElementById('pace-input');
   if (document.activeElement !== paceInputEl) {
@@ -1058,12 +1054,12 @@ function update() {
 
   // Intensity
   const intensityPct = paceToPercent(state.paceSec);
-  const zone = intensityZone(intensityPct - 0.5);
+  const zone = intensityZone(intensityPct);
   document.getElementById('intensity-name').textContent = zone.name;
   document.getElementById('intensity-name').style.color = zone.color;
   document.getElementById('intensity-pct').textContent = `${Math.round(intensityPct)}% of critical speed`;
   const barFill = document.getElementById('intensity-bar-fill');
-  barFill.style.width = state.paceSlider + '%';
+  barFill.style.width = Math.min(100, Math.max(0, (intensityPct - 50) / 70 * 100)) + '%';
   barFill.style.background = zone.color;
 
   // Zone bar visualisation
@@ -1116,7 +1112,7 @@ function updateBattery(type, fillPct, remaining, total, deficit) {
   fillEl.setAttribute('y', 10 + (bh - newH));
   fillEl.setAttribute('height', newH);
 
-  if (totalEl) totalEl.textContent = Math.round(total).toLocaleString() + (type === 'fat' ? ' kcal total' : ' kcal usable');
+  if (totalEl) totalEl.textContent = Math.round(total).toLocaleString() + (type === 'fat' ? ' kcal usable' : ' kcal usable');
 
   if (deficit) {
     fillEl.style.fill = '#ff6b6b';
@@ -1163,22 +1159,23 @@ function updateIntakeBattery(carbSpent, glycoUsable, carbFrac, kcalPerHr) {
   if (noDurEl) noDurEl.style.display = 'none';
 
   const deficit = Math.max(0, carbSpent - glycoUsable);
-  const fillPct = Math.min(1, deficit / glycoUsable);
+  const intakeRateKcalPerHr = deficit / (state.durationSec / 3600);
+  const gramsPerHr = intakeRateKcalPerHr / 4;
+  const fillPct = Math.min(1, gramsPerHr / 100);
   const bh = 138;
   const newH = fillPct * bh;
   fillEl.setAttribute('y', 10 + (bh - newH));
   fillEl.setAttribute('height', newH);
 
-  const pctStr = deficit > 0 ? Math.round(fillPct * 100) + '%' : '0%';
+  const pctStr = Math.round(fillPct * 100) + '%';
   if (pctEl) {
     pctEl.textContent = pctStr;
     pctEl.style.fill = fillPct > 0.25 ? '#ffffff' : '#69db7c';
   }
   if (shadowEl) shadowEl.textContent = pctStr;
   if (totalEl) totalEl.textContent = deficit > 0 ? Math.round(deficit).toLocaleString() + ' kcal' : '0 kcal';
-  const intakeRateKcalPerHr = deficit / (state.durationSec / 3600);
   if (rateEl) { rateEl.textContent = deficit > 0 ? Math.round(intakeRateKcalPerHr) + ' kcal/hr' : '—'; rateEl.style.visibility = deficit > 0 ? 'visible' : 'hidden'; }
-  if (gramsEl) gramsEl.textContent = deficit > 0 ? Math.round(intakeRateKcalPerHr / 4) + ' g/hr' : "Not needed!";
+  if (gramsEl) gramsEl.textContent = deficit > 0 ? Math.round(gramsPerHr) + ' g/hr' : "Not needed!";
 }
 
 function updateTimePanel(fatSpent, carbSpent, fatUsable, glycoUsable, kcalPerHr, fatFrac, carbFrac) {
@@ -1196,7 +1193,7 @@ function updateTimePanel(fatSpent, carbSpent, fatUsable, glycoUsable, kcalPerHr,
   const carbOver = carbSpent > glycoUsable;
 
   contentEl.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:35px;">
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;min-width:0;">
         <div class="sc-label" style="color:var(--text-dim);font-size:13px;">Duration</div>
         <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);line-height:1;">${fmtDurationHMS(state.durationSec)} <span style="font-size:10px;font-weight:400;">hours</span></div>
@@ -1225,14 +1222,15 @@ function updateTimePanel(fatSpent, carbSpent, fatUsable, glycoUsable, kcalPerHr,
       <div class="tp-row" style="margin-top:-6px;padding-left:60px;"><div style="font-size:10px;color:var(--text-dim);">of ${Math.round(glycoUsable).toLocaleString()} kcal (${carbBarPct.toFixed(0)}% used)${carbOver ? ' ⚠' : ''}</div></div>
     </div>
     ${carbOver ? `<div style="margin-top:16px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);border-radius:8px;padding:12px;font-size:12px;color:var(--danger);">⚠ Glycogen approaching depletion around ${fmtDuration(glycoUsable / (carbFrac * kcalPerHr) * 3600)}. Intake of ${Math.round((carbSpent - glycoUsable) / hrs)} kcal/hr is required to prevent negative impact on performance.</div>` : ''}
-    ${!carbOver && !fatOver ? `<div style="margin-top:58px;font-size:11px;color:var(--text-dim);"><span style="color:var(--green)">✓</span> Energy stores sufficient for this duration at this pace.</div>` : ''}
+    ${carbOver && Math.round((carbSpent - glycoUsable) / hrs / 4) > 100 ? `<div style="margin-top:8px;background:rgba(255,166,35,0.1);border:1px solid rgba(255,166,35,0.3);border-radius:8px;padding:12px;font-size:12px;color:var(--fat-color);">⚠ Required carbohydrate intake exceeds 100 g/hr. Gastric absorption limits make this physiologically risky and may cause GI distress.</div>` : ''}
+    ${!carbOver && !fatOver ? `<div style="margin-top:58px;padding-bottom:1px;font-size:11px;color:var(--text-dim);"><span style="color:var(--green)">✓</span> Energy stores sufficient for this duration at this pace.</div>` : ''}
   `;
 }
 
 // ─── EVENTS ──────────────────────────────────────────────────────────────────
-document.getElementById('weight').addEventListener('input', update);
-document.getElementById('critical-speed').addEventListener('input', update);
-document.getElementById('pace-slider').addEventListener('input', update);
+document.getElementById('weight').addEventListener('input', () => update());
+document.getElementById('critical-speed').addEventListener('input', () => update());
+document.getElementById('pace-slider').addEventListener('input', () => update());
 
 // Duration text input
 document.getElementById('duration-input').addEventListener('input', function() {
@@ -1272,7 +1270,7 @@ document.getElementById('pace-input').addEventListener('input', function() {
   document.getElementById('pace-slider').value = sliderVal;
   state.paceSlider = sliderVal;
   state.paceSec = parsed;
-  update();
+  update(true);
 });
 document.getElementById('pace-input').addEventListener('blur', function() {
   // Reformat on blur
@@ -1288,7 +1286,7 @@ document.getElementById('pace-up').addEventListener('click', function() {
   document.getElementById('pace-slider').value = sliderVal;
   state.paceSlider = sliderVal;
   state.paceSec = newPace;
-  update();
+  update(true);
 });
 document.getElementById('pace-down').addEventListener('click', function() {
   const { slow } = paceRange();
@@ -1297,16 +1295,17 @@ document.getElementById('pace-down').addEventListener('click', function() {
   document.getElementById('pace-slider').value = sliderVal;
   state.paceSlider = sliderVal;
   state.paceSec = newPace;
-  update();
+  update(true);
 });
 
 // Redraw chart on resize
 window.addEventListener('resize', () => drawBurnChart(state.paceSec, state.weight, state.csSec));
 
 // Initialize — seed pace slider from desired defaults before first update()
-state.paceSlider = paceToSlider(237); // 3:57 with critical speed 3:12
+state.paceSlider = paceToSlider(238); // 3:58
+state.paceSec = 238;
 document.getElementById('pace-slider').value = state.paceSlider;
-update();
+update(true);
 
 
 </script>
